@@ -48,26 +48,33 @@ jobs:
             sleep 1
           done
 
-          headers=$(mktemp)
-          curl -sf -X POST http://localhost:8080/mcp \
-            -H 'Content-Type: application/json' \
-            -H 'Accept: application/json, text/event-stream' \
-            -D "$headers" \
-            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
-            > /dev/null
-          sid=$(grep -i '^mcp-session-id' "$headers" | tr -d '\r' | awk '{print $2}')
-          test -n "$sid"
+          # In AUTH_MODE=gateway, the server requires X-Qbo-Access-Token and
+          # X-Qbo-Realm-Id on EVERY /mcp request (src/index.ts) -- including
+          # initialize and tools/list, which never touch the QBO API. Values
+          # below are placeholders, not real credentials.
+          #
+          # This server is also intentionally stateless (StreamableHTTPServerTransport
+          # is built with sessionIdGenerator: undefined -- see src/index.ts): it
+          # never issues an Mcp-Session-Id, so none is captured or replayed here.
+          creds=(-H 'X-Qbo-Access-Token: ci-smoke-test-token' -H 'X-Qbo-Realm-Id: 0000000000')
 
           curl -sf -X POST http://localhost:8080/mcp \
             -H 'Content-Type: application/json' \
             -H 'Accept: application/json, text/event-stream' \
-            -H "Mcp-Session-Id: $sid" \
+            "${creds[@]}" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            > /dev/null
+
+          curl -sf -X POST http://localhost:8080/mcp \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            "${creds[@]}" \
             -d '{"jsonrpc":"2.0","method":"notifications/initialized"}' > /dev/null
 
           names=$(curl -sf -X POST http://localhost:8080/mcp \
             -H 'Content-Type: application/json' \
             -H 'Accept: application/json, text/event-stream' \
-            -H "Mcp-Session-Id: $sid" \
+            "${creds[@]}" \
             -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
             | python3 -c 'import sys,json; print(" ".join(t["name"] for t in json.load(sys.stdin)["result"]["tools"]))')
 
