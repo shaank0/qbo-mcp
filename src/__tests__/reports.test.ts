@@ -251,4 +251,37 @@ describe("qbo_projects_list", () => {
     const res = await handleProjectTool("qbo_projects_list", {});
     expect(JSON.parse(res.content[0].text)).toEqual({ projects: [], count: 0 });
   });
+
+  it("rejects an out-of-range maxResults with a clear error, not an upstream failure", async () => {
+    vi.resetModules();
+    vi.doMock("../utils/client.js", () => ({
+      getClient: () => ({ get: async () => ({}), query: async () => ({ QueryResponse: {} }) }),
+    }));
+
+    const { handleProjectTool } = await import("../domains/projects.js");
+    await expect(handleProjectTool("qbo_projects_list", { maxResults: 999999 })).rejects.toThrow(
+      /maxResults/
+    );
+  });
+
+  it("composes active_only with the IsProject filter", async () => {
+    vi.resetModules();
+    const queries: string[] = [];
+    vi.doMock("../utils/client.js", () => ({
+      getClient: () => ({
+        get: async () => ({}),
+        query: async (sql: string) => {
+          queries.push(sql);
+          return { QueryResponse: {} };
+        },
+      }),
+    }));
+
+    const { handleProjectTool } = await import("../domains/projects.js");
+    await handleProjectTool("qbo_projects_list", { active_only: true });
+
+    expect(queries[0]).toContain("IsProject = true");
+    expect(queries[0]).toContain("Active = true");
+    expect(queries[0]).toMatch(/IsProject = true AND Active = true/);
+  });
 });
