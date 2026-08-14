@@ -38,6 +38,21 @@ export const reportTools: Tool[] = [
           enum: ["Cash", "Accrual"],
           description: "Accounting method (default: Accrual)",
         },
+        summarize_column_by: {
+          type: "string",
+          enum: ["Total", "Month", "Quarter", "Year", "Classes", "Departments", "Customers"],
+          description:
+            "How to break the report into columns. Use 'Classes' to get one column per class — the way to see every class at once rather than filtering to one.",
+        },
+        class: {
+          type: "string",
+          description:
+            "Filter to one or more class IDs (comma-separated). Class IDs, not names — resolve names first with qbo_classes_list.",
+        },
+        department: { type: "string", description: "Filter by department ID(s), comma-separated" },
+        customer: { type: "string", description: "Filter by customer ID(s), comma-separated" },
+        vendor: { type: "string", description: "Filter by vendor ID(s), comma-separated" },
+        item: { type: "string", description: "Filter by item ID(s), comma-separated" },
       },
       required: ["start_date", "end_date"],
     },
@@ -204,17 +219,33 @@ export async function handleReportTool(
 
   switch (name) {
     case "qbo_reports_profit_and_loss": {
-      const { start_date, end_date, accounting_method } = args as {
-        start_date: string;
-        end_date: string;
-        accounting_method?: string;
-      };
-
-      const params: Record<string, string> = {
+      const {
         start_date,
         end_date,
+        accounting_method,
+        summarize_column_by,
+        class: klass,
+        department,
+        customer,
+        vendor,
+        item,
+      } = args as Record<string, string | undefined>;
+
+      const params: Record<string, string> = {
+        start_date: start_date!,
+        end_date: end_date!,
       };
       if (accounting_method) params.accounting_method = accounting_method;
+      if (summarize_column_by) params.summarize_column_by = summarize_column_by;
+      // NOTE the wire name: ProfitAndLoss takes `class`, ProfitAndLossDetail
+      // takes `classid`. Intuit is inconsistent between the two. A wrong name
+      // is NOT an error — QBO silently ignores it and returns the full
+      // unfiltered report. scripts/verify-report-filters.ts proves which.
+      if (klass) params.class = klass;
+      if (department) params.department = department;
+      if (customer) params.customer = customer;
+      if (vendor) params.vendor = vendor;
+      if (item) params.item = item;
 
       const report = await client.get("reports/ProfitAndLoss", params);
       return {
