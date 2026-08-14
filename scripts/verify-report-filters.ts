@@ -57,8 +57,19 @@ interface CheckSpec {
   path: string;
 }
 
-/** QBO puts the grand total in the last summary row; fall back to a crude
- * fingerprint so a structural difference still registers. */
+/**
+ * QBO puts the grand total in the last summary row; fall back to a crude
+ * fingerprint so a structural difference still registers.
+ *
+ * Which branch fires depends on the report shape, and that's expected, not a
+ * bug: summary reports (ProfitAndLoss, ProfitAndLossDetail) carry a
+ * `Summary.ColData` grand-total row and hit the primary branch. `TransactionList`
+ * is a bare transaction listing with no summary row, so it always falls
+ * through to the `JSON.stringify(...).length` fingerprint — a shorter/longer
+ * JSON body is still a valid signal that the filtered response differs from
+ * the unfiltered one. If TransactionList started hitting the primary branch
+ * instead, that would itself indicate QBO changed the report shape.
+ */
 function total(report: unknown): string {
   const r = report as any;
   const rows = r?.Rows?.Row ?? [];
@@ -72,10 +83,14 @@ function total(report: unknown): string {
  * The spec requires endpoint spellings be verified live, not assumed: Wyre maps
  * `GeneralLedger` while node-quickbooks exposes `GeneralLedgerDetail`, so at
  * least one QBO report has two variants and a wrong name is a 4xx, not a
- * silent pass. Check every endpoint this fork introduces before testing filters.
+ * silent pass. Check every endpoint this fork introduces before testing filters
+ * — including `ProfitAndLoss` itself, since `classChecks` below fetches it and
+ * an unverified path would otherwise crash with a raw stack trace instead of
+ * printing `BAD NAME ❌` like every other endpoint failure.
  */
 async function verifyEndpoints(client: Client): Promise<boolean> {
   const endpoints = [
+    "reports/ProfitAndLoss",
     "reports/ProfitAndLossDetail",
     "reports/TransactionList",
     "reports/AgedReceivableDetail",
