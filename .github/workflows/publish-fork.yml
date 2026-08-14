@@ -1,0 +1,92 @@
+name: publish-fork
+
+on:
+  push:
+    branches: [gateway]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # provenance/sbom off deliberately: build-push-action@v6 defaults them on,
+      # which makes buildx emit an image index with an attestation manifest.
+      # With `load: true`, a later push then fails with `unknown blob`.
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          provenance: false
+          sbom: false
+          tags: ghcr.io/${{ github.repository_owner }}/qbo-mcp:ci
+
+      - name: Smoke-test the built image
+        run: |
+          set -euo pipefail
+          docker run -d --name qbo -p 8080:8080 \
+            -e AUTH_MODE=gateway -e MCP_TRANSPORT=http \
+            ghcr.io/${{ github.repository_owner }}/qbo-mcp:ci
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:8080/health && break
+            sleep 1
+          done
+
+          headers=$(mktemp)
+          curl -sf -X POST http://localhost:8080/mcp \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -D "$headers" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            > /dev/null
+          sid=$(grep -i '^mcp-session-id' "$headers" | tr -d '\r' | awk '{print $2}')
+          test -n "$sid"
+
+          curl -sf -X POST http://localhost:8080/mcp \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -H "Mcp-Session-Id: $sid" \
+            -d '{"jsonrpc":"2.0","method":"notifications/initialized"}' > /dev/null
+
+          names=$(curl -sf -X POST http://localhost:8080/mcp \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -H "Mcp-Session-Id: $sid" \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | python3 -c 'import sys,json; print(" ".join(t["name"] for t in json.load(sys.stdin)["result"]["tools"]))')
+
+          # Every tool this fork exists to add must actually be served. A handler
+          # can be correct while registration is missed, and tools/list is the
+          # only thing that proves otherwise.
+          for t in qbo_reports_transaction_list qbo_reports_profit_and_loss_detail \
+                   qbo_reports_aged_receivable_detail qbo_reports_class_sales \
+                   qbo_reports_journal_report qbo_projects_list; do
+            echo "$names" | grep -qw "$t" || { echo "MISSING TOOL: $t"; exit 1; }
+          done
+          echo "all fork tools served"
+          docker rm -f qbo
+
+      - name: Push the tested artifact
+        run: |
+          docker tag ghcr.io/${{ github.repository_owner }}/qbo-mcp:ci \
+                     ghcr.io/${{ github.repository_owner }}/qbo-mcp:latest
+          docker tag ghcr.io/${{ github.repository_owner }}/qbo-mcp:ci \
+                     ghcr.io/${{ github.repository_owner }}/qbo-mcp:sha-${{ steps.sha.outputs.short }}
+          docker push ghcr.io/${{ github.repository_owner }}/qbo-mcp:latest
+          docker push ghcr.io/${{ github.repository_owner }}/qbo-mcp:sha-${{ steps.sha.outputs.short }}
