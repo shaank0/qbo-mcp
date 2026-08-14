@@ -7,7 +7,10 @@
  *
  * Production base URL: https://quickbooks.api.intuit.com/v3/company/{realmId}/
  * Sandbox base URL:    https://sandbox-quickbooks.api.intuit.com/v3/company/{realmId}/
- * All requests include minorversion=73 query parameter.
+ * All requests include the minorversion query parameter (see MINOR_VERSION).
+ * Pinned to 75: Intuit deprecated minor versions 1-74 in August 2025, and
+ * IsProject (needed by the project-list tool) is gated on this version, so
+ * bumping it is a deliberate decision, not a typo.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -16,7 +19,7 @@ const QBO_API_HOSTS = {
   production: "https://quickbooks.api.intuit.com",
   sandbox: "https://sandbox-quickbooks.api.intuit.com",
 } as const;
-const MINOR_VERSION = "73";
+const MINOR_VERSION = "75";
 const MAX_PAGE_SIZE = 1000;
 
 export type QboEnvironment = "production" | "sandbox";
