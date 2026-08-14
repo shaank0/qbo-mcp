@@ -197,3 +197,58 @@ describe("new report tools", () => {
     expect(res.content[0].text).toBe(JSON.stringify(nested, null, 2));
   });
 });
+
+describe("qbo_projects_list", () => {
+  it("queries Customer filtered on IsProject", async () => {
+    vi.resetModules();
+    const queries: string[] = [];
+    vi.doMock("../utils/client.js", () => ({
+      getClient: () => ({
+        get: async () => ({}),
+        query: async (sql: string) => {
+          queries.push(sql);
+          return {
+            QueryResponse: {
+              Customer: [
+                {
+                  Id: "7",
+                  DisplayName: "Acme — Roof Replacement",
+                  Active: true,
+                  ParentRef: { value: "3", name: "Acme" },
+                },
+              ],
+            },
+          };
+        },
+      }),
+    }));
+
+    const { handleProjectTool } = await import("../domains/projects.js");
+    const res = await handleProjectTool("qbo_projects_list", {});
+
+    expect(queries[0]).toContain("FROM Customer");
+    expect(queries[0]).toContain("IsProject = true");
+
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.projects).toEqual([
+      {
+        id: "7",
+        name: "Acme — Roof Replacement",
+        active: true,
+        parentCustomerId: "3",
+        parentCustomerName: "Acme",
+      },
+    ]);
+  });
+
+  it("returns an empty list rather than throwing when a realm has no projects", async () => {
+    vi.resetModules();
+    vi.doMock("../utils/client.js", () => ({
+      getClient: () => ({ get: async () => ({}), query: async () => ({ QueryResponse: {} }) }),
+    }));
+
+    const { handleProjectTool } = await import("../domains/projects.js");
+    const res = await handleProjectTool("qbo_projects_list", {});
+    expect(JSON.parse(res.content[0].text)).toEqual({ projects: [], count: 0 });
+  });
+});

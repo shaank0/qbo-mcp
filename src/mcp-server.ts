@@ -25,6 +25,7 @@ import { INVOICE_CARD_META, INVOICE_CARD_TOOL } from "./card.builder.js";
 import { registerResourceHandlers } from "./resources.js";
 // Hand-written domains for tools that don't fit the entity-config pattern
 import { expenseTools, handleExpenseTool } from "./domains/expenses.js";
+import { projectTools, handleProjectTool } from "./domains/projects.js";
 import { reportTools, handleReportTool } from "./domains/reports.js";
 // Generated entities (Customer, Invoice, Payment) flow through this registry
 import {
@@ -66,10 +67,15 @@ const handWrittenDomains: DomainInfo[] = [
       "Financial reports - profit & loss, balance sheet, aged receivables/payables, customer sales",
     tools: reportTools,
   },
+  {
+    prefix: "qbo_projects",
+    description: "Projects - list customers flagged as QuickBooks projects",
+    tools: projectTools,
+  },
 ];
 
 const allDomains: DomainInfo[] = [...entityDomains, ...handWrittenDomains];
-const allTools: Tool[] = [...allEntityTools, ...expenseTools, ...reportTools];
+const allTools: Tool[] = [...allEntityTools, ...expenseTools, ...reportTools, ...projectTools];
 
 /**
  * Tools as advertised by tools/list. qbo_invoices_get carries the MCP Apps
@@ -243,6 +249,9 @@ export function createMcpServer(): Server {
       }
       if (name.startsWith("qbo_reports_")) {
         return await handleReportTool(name, toolArgs);
+      }
+      if (name.startsWith("qbo_projects_")) {
+        return await handleProjectTool(name, toolArgs);
       }
 
       return {
