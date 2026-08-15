@@ -11,6 +11,13 @@ describe("QBO API minor version", () => {
   });
 });
 
+/** The report body `captureClient`'s stub returns, so output shape is assertable. */
+const CAPTURED_REPORT = {
+  Header: { ReportName: "x" },
+  Columns: { Column: [{ ColTitle: "Total" }] },
+  Rows: { Row: [{ ColData: [{ value: "1.00" }] }] },
+};
+
 /** Capture the path + params handed to the QBO client. */
 function captureClient() {
   const calls: { path: string; params: Record<string, string> }[] = [];
@@ -18,7 +25,7 @@ function captureClient() {
     getClient: () => ({
       get: async (path: string, params: Record<string, string>) => {
         calls.push({ path, params });
-        return { Header: { ReportName: "x" }, Columns: { Column: [] }, Rows: {} };
+        return CAPTURED_REPORT;
       },
       query: async () => ({ QueryResponse: {} }),
     }),
@@ -132,12 +139,65 @@ describe("new report tools", () => {
     });
   });
 
+  it("AgedReceivableDetail resolves to the detail endpoint, not the summary one", async () => {
+    vi.resetModules();
+    const calls = captureClient();
+    const { handleReportTool: handle } = await import("../domains/reports.js");
+
+    await handle("qbo_reports_aged_receivable_detail", {
+      report_date: "2026-03-31",
+      aging_method: "Report_Date",
+    });
+
+    // Endpoint spellings are verify-then-ship: QBO has both AgedReceivables
+    // and AgedReceivableDetail (cf. GeneralLedger vs GeneralLedgerDetail), and
+    // a typo here ships green unless the PATH itself is asserted.
+    expect(calls[0].path).toBe("reports/AgedReceivableDetail");
+    expect(calls[0].params).toMatchObject({
+      report_date: "2026-03-31",
+      aging_method: "Report_Date",
+    });
+  });
+
+  it("ClassSales resolves to the ClassSales endpoint", async () => {
+    vi.resetModules();
+    const calls = captureClient();
+    const { handleReportTool: handle } = await import("../domains/reports.js");
+
+    await handle("qbo_reports_class_sales", {
+      start_date: "2026-01-01",
+      end_date: "2026-03-31",
+      accounting_method: "Accrual",
+    });
+
+    expect(calls[0].path).toBe("reports/ClassSales");
+    expect(calls[0].params).toMatchObject({
+      start_date: "2026-01-01",
+      end_date: "2026-03-31",
+      accounting_method: "Accrual",
+    });
+  });
+
+  it("JournalReport resolves to the JournalReport endpoint", async () => {
+    vi.resetModules();
+    const calls = captureClient();
+    const { handleReportTool: handle } = await import("../domains/reports.js");
+
+    await handle("qbo_reports_journal_report", {
+      start_date: "2026-01-01",
+      end_date: "2026-03-31",
+    });
+
+    expect(calls[0].path).toBe("reports/JournalReport");
+    expect(calls[0].params).toEqual({ start_date: "2026-01-01", end_date: "2026-03-31" });
+  });
+
   it("aged receivables gains the aging controls without breaking its old shape", async () => {
     vi.resetModules();
     const calls = captureClient();
     const { handleReportTool: handle } = await import("../domains/reports.js");
 
-    await handle("qbo_reports_aged_receivables", {
+    const res = await handle("qbo_reports_aged_receivables", {
       report_date: "2026-03-31",
       customer: "42",
       aging_method: "Report_Date",
@@ -151,6 +211,28 @@ describe("new report tools", () => {
       aging_method: "Report_Date",
       num_periods: "4",
     });
+    // "without breaking its old shape" is a claim about the OUTPUT, and this
+    // handler was rewritten (passThrough) — so assert it, or wrapping this
+    // report in flatText would leave the test green under a broken promise.
+    expect(res.content[0].text).toBe(JSON.stringify(CAPTURED_REPORT, null, 2));
+  });
+
+  it("profit and loss keeps its pre-existing nested output despite the new filters", async () => {
+    vi.resetModules();
+    const calls = captureClient();
+    const { handleReportTool: handle } = await import("../domains/reports.js");
+
+    const res = await handle("qbo_reports_profit_and_loss", {
+      start_date: "2026-01-01",
+      end_date: "2026-03-31",
+      class: "5000000000000001",
+    });
+
+    expect(calls[0].path).toBe("reports/ProfitAndLoss");
+    // The other handler this fork rewrote. Flattening it would be a breaking
+    // change for every existing caller AND would sink the upstream PR's
+    // "purely additive" claim.
+    expect(res.content[0].text).toBe(JSON.stringify(CAPTURED_REPORT, null, 2));
   });
 
   it("new tools return flattened rows, not the raw nested report", async () => {
@@ -172,10 +254,48 @@ describe("new report tools", () => {
     });
     const parsed = JSON.parse(res.content[0].text);
 
-    expect(parsed.rows).toEqual([{ Date: "2026-01-05", Amount: "10.00" }]);
+    expect(parsed.rows).toEqual([
+      { Date: "2026-01-05", Amount: "10.00", section: "", rowType: "data" },
+    ]);
     expect(parsed.truncated).toBe(false);
     // The nested original must NOT be echoed alongside it.
     expect(parsed.Rows).toBeUndefined();
+  });
+
+  it("plumbs max_rows from the tool arguments through to the flattener", async () => {
+    // `typeof a.max_rows === "number"` is the whole point of the argument. A
+    // typo'd key (a.maxRows) leaves every report silently pinned at the 2000
+    // default with every other test still green — silent truncation policy
+    // failure, the same class of harm as a silently ignored filter.
+    vi.resetModules();
+    vi.doMock("../utils/client.js", () => ({
+      getClient: () => ({
+        get: async () => ({
+          Columns: { Column: [{ ColTitle: "Date" }] },
+          Rows: {
+            Row: [
+              { ColData: [{ value: "2026-01-01" }] },
+              { ColData: [{ value: "2026-01-02" }] },
+              { ColData: [{ value: "2026-01-03" }] },
+            ],
+          },
+        }),
+        query: async () => ({ QueryResponse: {} }),
+      }),
+    }));
+    const { handleReportTool: handle } = await import("../domains/reports.js");
+
+    for (const tool of ["qbo_reports_transaction_list", "qbo_reports_journal_report"]) {
+      const res = await handle(tool, {
+        start_date: "2026-01-01",
+        end_date: "2026-03-31",
+        max_rows: 2,
+      });
+      const parsed = JSON.parse(res.content[0].text);
+      expect(parsed.rows, `${tool} ignored max_rows`).toHaveLength(2);
+      expect(parsed.truncated, `${tool} truncated silently`).toBe(true);
+      expect(parsed.totalRows, `${tool} lost the pre-truncation count`).toBe(3);
+    }
   });
 
   it("leaves the pre-existing balance-sheet output untouched", async () => {
