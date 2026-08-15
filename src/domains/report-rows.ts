@@ -43,6 +43,32 @@
  * their original output so this stays an additive change upstream.
  */
 
+/**
+ * QuickBooks' report tree, typed structurally. Every field is optional because
+ * the shape genuinely varies by report — a row is a data row, a section, a
+ * subtotal, or several at once — and this is untrusted API output, not a
+ * contract. Narrow instead of asserting `any`.
+ */
+export interface QboColData {
+  value?: string | null;
+}
+
+export interface QboRow {
+  /** A data row's cells. */
+  ColData?: QboColData[];
+  /** A section's label row. */
+  Header?: { ColData?: QboColData[] };
+  /** A section's subtotal row (and, at top level, the grand total). */
+  Summary?: { ColData?: QboColData[] };
+  /** A section's children. */
+  Rows?: { Row?: QboRow[] };
+}
+
+export interface QboReport {
+  Columns?: { Column?: { ColTitle?: string }[] };
+  Rows?: { Row?: QboRow[] };
+}
+
 interface FlatReport {
   /** QBO's own column titles. `section`/`rowType` are added per row on top. */
   columns: string[];
@@ -67,14 +93,14 @@ interface RawRow {
   rowType: RowType;
 }
 
-function columnTitles(report: any): string[] {
+function columnTitles(report: QboReport): string[] {
   const cols = report?.Columns?.Column;
   if (!Array.isArray(cols)) return [];
-  return cols.map((c: any, i: number) => String(c?.ColTitle ?? `col_${i}`));
+  return cols.map((c, i) => String(c?.ColTitle ?? `col_${i}`));
 }
 
-function cellValues(colData: any[]): string[] {
-  return colData.map((c: any) => String(c?.value ?? ""));
+function cellValues(colData: QboColData[]): string[] {
+  return colData.map((c) => String(c?.value ?? ""));
 }
 
 /**
@@ -82,7 +108,7 @@ function cellValues(colData: any[]): string[] {
  * the header row out to the full column count, so the label is followed by
  * empties — only the first cell is the name.
  */
-function headerLabel(row: any): string | null {
+function headerLabel(row: QboRow): string | null {
   const colData = row?.Header?.ColData;
   if (!Array.isArray(colData)) return null;
   for (const cell of colData) {
@@ -100,7 +126,7 @@ function headerLabel(row: any): string | null {
  * row of its own — it is a label, and emitting it would put a class or account
  * name in the Date column. It is preserved as `section` on the rows beneath it.
  */
-function collectRows(node: any, out: RawRow[], section: string): void {
+function collectRows(node: QboReport | QboRow, out: RawRow[], section: string): void {
   const rows = node?.Rows?.Row;
   if (!Array.isArray(rows)) return;
 
@@ -124,10 +150,11 @@ function collectRows(node: any, out: RawRow[], section: string): void {
 }
 
 export function flattenReport(report: unknown, maxRows: number = DEFAULT_MAX_ROWS): FlatReport {
-  const columns = columnTitles(report);
+  const typed = (report ?? {}) as QboReport;
+  const columns = columnTitles(typed);
 
   const raw: RawRow[] = [];
-  collectRows(report, raw, "");
+  collectRows(typed, raw, "");
 
   const truncated = raw.length > maxRows;
   const kept = truncated ? raw.slice(0, maxRows) : raw;

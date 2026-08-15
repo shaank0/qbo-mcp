@@ -21,11 +21,17 @@ name: integration
 # When the four required secrets are absent (dependabot / fork PRs) the suite
 # is skipped with a notice rather than failing.
 
+# `gateway` is included deliberately: it is the branch that ADDS the filtered
+# report tools, and the live differential checks in
+# src/__tests__/sandbox.integration.test.ts are the only thing that can prove a
+# filter parameter name is real rather than silently ignored. Running them only
+# on main would mean the branch that needs verification is the one branch that
+# never gets it.
 on:
   push:
-    branches: [main]
+    branches: [main, gateway]
   pull_request:
-    branches: [main]
+    branches: [main, gateway]
   workflow_dispatch:
 
 jobs:

@@ -14,6 +14,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The test gate. This workflow is the ONLY one that triggers on `gateway`
+      # (every other workflow is main-only), and the gateway catalog pins
+      # :latest — so without these steps any push that merely COMPILES
+      # republishes the image users get, with the suite never having run.
+      #
+      # The tools/list smoke test below catches a missed registration but not a
+      # behavioural regression: flattening a pre-existing report tool's output,
+      # or breaking the section context that carries account attribution, both
+      # sail through it. Those are unit-tested, so the units must run first.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:

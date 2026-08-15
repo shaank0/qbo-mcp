@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { handleReportTool, reportTools } from "../domains/reports.js";
+import { reportTools } from "../domains/reports.js";
 
 describe("QBO API minor version", () => {
   it("pins minorversion 75 — 1-74 were deprecated in August 2025", () => {
@@ -36,7 +36,7 @@ function captureClient() {
 describe("qbo_reports_profit_and_loss: dimension filters", () => {
   it("advertises the class and summarize_column_by arguments", () => {
     const tool = reportTools.find((t) => t.name === "qbo_reports_profit_and_loss")!;
-    const props = (tool.inputSchema as any).properties;
+    const props = (tool.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties;
     expect(Object.keys(props)).toEqual(
       expect.arrayContaining([
         "start_date", "end_date", "accounting_method",

@@ -43,7 +43,7 @@ export const reportTools: Tool[] = [
           type: "string",
           enum: ["Total", "Month", "Quarter", "Year", "Classes", "Departments", "Customers"],
           description:
-            "How to break the report into columns. Use 'Classes' to get one column per class — the way to see every class at once rather than filtering to one.",
+            "How to break the report into columns. Use 'Classes' to get one column per class — the way to see every class at once rather than filtering to one. NOTE: 'Departments' and 'Customers' are taken from Intuit's own MCP server and are UNVERIFIED against a live realm — if QuickBooks does not recognise a value it ignores the parameter and returns a single-column Total report that reads as entirely legitimate. See docs/FILTER-VERIFICATION.md.",
         },
         class: {
           type: "string",
