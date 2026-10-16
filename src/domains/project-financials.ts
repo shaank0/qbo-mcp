@@ -69,11 +69,21 @@ export function belongsToProject(customer: string, project: ProjectRef): boolean
   return c === project.name.trim() || c === fqn || c.startsWith(`${fqn}:`);
 }
 
+/**
+ * Blank amounts return null (the row is skipped). A non-empty amount that is
+ * not a plain finite number, such as "$1,200.00" or "(100.00)", throws: a
+ * silently dropped row would make the totals quietly disagree with the report.
+ */
 function parseAmount(value: string): number | null {
-  const v = value.replace(/,/g, "").trim();
+  const v = value.trim();
   if (!v) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  const n = Number(v.replace(/,/g, ""));
+  if (!Number.isFinite(n)) {
+    throw new ProjectFilterError(
+      `unrecognised amount "${v}" in report — refusing to return partial totals`
+    );
+  }
+  return n;
 }
 
 export function computeProjectFinancials(
