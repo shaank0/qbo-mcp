@@ -112,7 +112,15 @@ describe("leak prevention", () => {
   it("withholds QuickBooks fault bodies", async () => {
     getError = new QboApiError(400, "GET", "reports/ProfitAndLossDetail", "SECRET-BODY");
     const p = handleProjectFinancialsTool("qbo_project_get_financials", args);
-    await expect(p).rejects.toThrow("HTTP 400");
+    await expect(p).rejects.toBeInstanceOf(QboApiError);
+    await expect(p).rejects.toMatchObject({ status: 400, body: "" });
+    await expect(p).rejects.not.toThrow("SECRET-BODY");
+  });
+  it("keeps a 401 a QboApiError so the QBO_UNAUTHORIZED prefix path works", async () => {
+    getError = new QboApiError(401, "GET", "reports/ProfitAndLossDetail", "SECRET-BODY");
+    const p = handleProjectFinancialsTool("qbo_project_get_financials", args);
+    await expect(p).rejects.toBeInstanceOf(QboApiError);
+    await expect(p).rejects.toMatchObject({ status: 401 });
     await expect(p).rejects.not.toThrow("SECRET-BODY");
   });
   it("rejects an invalid accounting_method before any QuickBooks call", async () => {

@@ -75,4 +75,23 @@ describe("isLaborLine", () => {
   it("a non-employee name is not labor just because it is not on the employee list", () => {
     expect(isLaborLine(line("Expenses > Office Supplies", "Staples (deleted)", "Bill"), ctx)).toBe(false);
   });
+
+  describe("account-number prefixed section headers", () => {
+    const numbered = [
+      { Id: "20", Name: "Guaranteed Payments", AcctNum: "6010", AccountSubType: "GuaranteedPayments" },
+      { Id: "9", Name: "Subcontractors", AcctNum: "6200", AccountSubType: "OtherMiscellaneousServiceCost" },
+      { Id: "21", Name: "Office Supplies", AcctNum: "6300", AccountSubType: "SuppliesMaterials" },
+    ];
+    const nctx = buildLaborContext(numbered, [], new Set(["9"]));
+    const l = (section: string) => ({ section, name: "Acme", txnType: "Bill" });
+    it("subtype rule matches '6010 Guaranteed Payments'", () => {
+      expect(isLaborLine(l("Expenses > 6010 Guaranteed Payments"), nctx)).toBe(true);
+    });
+    it("extra-id rule matches '6200 Subcontractors'", () => {
+      expect(isLaborLine(l("Expenses > 6200 Subcontractors"), nctx)).toBe(true);
+    });
+    it("'6300 Office Supplies' stays non-labor", () => {
+      expect(isLaborLine(l("Expenses > 6300 Office Supplies"), nctx)).toBe(false);
+    });
+  });
 });

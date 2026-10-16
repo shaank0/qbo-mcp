@@ -208,7 +208,7 @@ export const projectFinancialsTools: Tool[] = [
   {
     name: "qbo_project_get_hours",
     description:
-      "Hours logged on one project per person (from time entries) for a period. Never returns pay or billing rates.",
+      "Hours logged on one project per person (from time entries) for a period. Never returns pay or billing rates. Counts only time logged directly against this project id (not sub-projects).",
     inputSchema: PROJECT_ARGS,
   },
 ];
@@ -304,7 +304,10 @@ export async function handleProjectFinancialsTool(
   } catch (err) {
     // Upstream fault bodies must not pass through a payroll-sensitive tool.
     if (err instanceof QboApiError) {
-      throw new Error(`QuickBooks request failed (HTTP ${err.status}) — details withheld`);
+      // Rebuilt with an empty body: the response body is withheld, but the
+      // error stays a QboApiError so a 401 still gets mcp-server's
+      // QBO_UNAUTHORIZED: prefix (the gateway's refresh-and-retry signal).
+      throw new QboApiError(err.status, err.method, err.path, "");
     }
     throw err;
   }

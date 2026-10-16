@@ -15,6 +15,7 @@ export interface QboAccountLite {
   Id?: string;
   Name?: string;
   FullyQualifiedName?: string;
+  AcctNum?: string;
   AccountSubType?: string;
 }
 
@@ -56,6 +57,8 @@ const LABOR_ACCOUNT_NAME =
 /** Transaction types that are always payroll. */
 const LABOR_TXN_TYPE = /paycheck|payroll/i;
 
+const ACCOUNT_NUMBER_PREFIX = /^\d[\d.-]*\s+/;
+
 const SECTION_SEPARATOR = " > ";
 
 const norm = (s: string | undefined): string => (s ?? "").trim().toLowerCase();
@@ -84,6 +87,8 @@ export function buildLaborContext(
     if (!labor) continue;
     if (norm(a.Name)) laborAccountKeys.add(norm(a.Name));
     if (norm(a.FullyQualifiedName)) laborAccountKeys.add(norm(a.FullyQualifiedName));
+    // With account numbers enabled, report section headers read "6010 Name".
+    if (norm(a.AcctNum) && norm(a.Name)) laborAccountKeys.add(norm(`${a.AcctNum} ${a.Name}`));
   }
 
   const employeeNames = new Set<string>();
@@ -110,5 +115,15 @@ export function isLaborLine(
   // so ANY segment matching a labor account — or a labor-sounding name —
   // makes the line labor. That also covers children of a labor parent.
   const segments = line.section.split(SECTION_SEPARATOR).map(norm).filter(Boolean);
-  return segments.some((s) => ctx.laborAccountKeys.has(s) || LABOR_ACCOUNT_NAME.test(s));
+  // Headers may carry a leading account number ("6010 Guaranteed Payments"),
+  // so each segment is also tested with that token stripped.
+  return segments.some((s) => {
+    const bare = s.replace(ACCOUNT_NUMBER_PREFIX, "");
+    return (
+      ctx.laborAccountKeys.has(s) ||
+      ctx.laborAccountKeys.has(bare) ||
+      LABOR_ACCOUNT_NAME.test(s) ||
+      LABOR_ACCOUNT_NAME.test(bare)
+    );
+  });
 }
