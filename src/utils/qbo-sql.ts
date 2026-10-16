@@ -17,13 +17,23 @@ export function escapeQboString(value: string): string {
 }
 
 /**
- * Escape LIKE-pattern metacharacters in a user-supplied search term so that
- * `qbo_x_search` does literal substring matching rather than treating `%` or
- * `_` as wildcards. Must be paired with `ESCAPE '\\'` in the SQL clause.
- * Quote escaping is the caller's responsibility (run `escapeQboString` after).
+ * Make a user-supplied search term safe to embed in a LIKE pattern.
+ *
+ * QuickBooks' query language has NO `ESCAPE` clause — it rejects the whole
+ * query with `QueryParserError: Encountered "ESCAPE"` — and its LIKE supports
+ * only the `%` wildcard. A user's `%` therefore cannot be made literal, so it
+ * is removed: a search term can never inject a wildcard. `_` and backslash are
+ * ordinary characters to QBO and are left alone.
+ * Quote escaping is the caller's responsibility (run `escapeQboString` after),
+ * or use `buildLikeClause`, which does both.
  */
 export function escapeQboLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+  return value.replace(/%/g, "");
+}
+
+/** `<field> LIKE '%<term>%'` — a contains-match, safely escaped. */
+export function buildLikeClause(field: string, rawTerm: string): string {
+  return `${field} LIKE '%${escapeQboString(escapeQboLike(rawTerm))}%'`;
 }
 
 /**

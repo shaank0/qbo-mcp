@@ -4,6 +4,7 @@ import {
   assertPositiveInt,
   buildDatedListSql,
   escapeQboLike,
+  buildLikeClause,
   escapeQboString,
 } from "../utils/qbo-sql.js";
 import { parseEnvironment } from "../utils/client.js";
@@ -33,16 +34,29 @@ describe("escapeQboString", () => {
 });
 
 describe("escapeQboLike", () => {
-  it("escapes %, _, and backslash so search terms match literally", () => {
-    expect(escapeQboLike("50%")).toBe("50\\%");
-    expect(escapeQboLike("foo_bar")).toBe("foo\\_bar");
-    expect(escapeQboLike("a\\b")).toBe("a\\\\b");
+  // QuickBooks' query language has no ESCAPE clause (it rejects the query
+  // with QueryParserError) and its LIKE supports only the % wildcard. So a
+  // user's % cannot be made literal; it is removed so a search term can never
+  // inject a wildcard. _ and backslash are ordinary characters to QBO.
+  it("drops % and leaves _ and backslash untouched", () => {
+    expect(escapeQboLike("50%")).toBe("50");
+    expect(escapeQboLike("%%a%b%")).toBe("ab");
+    expect(escapeQboLike("foo_bar")).toBe("foo_bar");
+    expect(escapeQboLike("a\\b")).toBe("a\\b");
     expect(escapeQboLike("plain")).toBe("plain");
   });
 
   it("composes safely with escapeQboString for SQL string literals", () => {
     const term = escapeQboString(escapeQboLike("O'Brien_50%"));
-    expect(term).toBe("O''Brien\\_50\\%");
+    expect(term).toBe("O''Brien_50");
+  });
+});
+
+describe("buildLikeClause", () => {
+  it("builds a contains-match with no ESCAPE clause", () => {
+    const clause = buildLikeClause("DisplayName", "O'Brien_50%");
+    expect(clause).toBe("DisplayName LIKE '%O''Brien_50%'");
+    expect(clause).not.toMatch(/ESCAPE/i);
   });
 });
 

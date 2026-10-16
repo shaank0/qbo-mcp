@@ -7,8 +7,7 @@ import { getClient } from "../utils/client.js";
 import {
   assertPositiveInt,
   buildDatedListSql,
-  escapeQboLike,
-  escapeQboString,
+  buildLikeClause,
   type DatedListArgs,
 } from "../utils/qbo-sql.js";
 import { elicitText } from "../utils/elicitation.js";
@@ -78,11 +77,8 @@ export const customerExtras: EntityExtras = {
 
       let sql: string;
       if (searchTerm) {
-        // Match the generator's search-handler escape posture: LIKE-escape
-        // wildcards in the term, then quote-escape the result, with
-        // ESCAPE '\\' so backslash is the wildcard-escape char.
-        const term = escapeQboString(escapeQboLike(searchTerm));
-        sql = `SELECT * FROM Customer WHERE DisplayName LIKE '%${term}%' ESCAPE '\\' STARTPOSITION ${startPosition} MAXRESULTS ${maxResults}`;
+        // Same LIKE construction as the generator's search handler.
+        sql = `SELECT * FROM Customer WHERE ${buildLikeClause("DisplayName", searchTerm)} STARTPOSITION ${startPosition} MAXRESULTS ${maxResults}`;
       } else {
         sql = buildDatedListSql("Customer", args as DatedListArgs);
       }
