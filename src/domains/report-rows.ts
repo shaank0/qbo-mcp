@@ -69,7 +69,7 @@ export interface QboReport {
   Rows?: { Row?: QboRow[] };
 }
 
-interface FlatReport {
+export interface FlatReport {
   /** QBO's own column titles. `section`/`rowType` are added per row on top. */
   columns: string[];
   rows: Record<string, string>[];
