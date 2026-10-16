@@ -13,8 +13,19 @@
  * doubt is an error — never company-wide totals presented as a project's.
  */
 
-import type { FlatReport } from "./report-rows.js";
-import { isLaborLine, type LaborContext } from "./labor.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { getClient } from "../utils/client.js";
+import { flattenReport, type FlatReport } from "./report-rows.js";
+import { assertDate, escapeQboString } from "../utils/qbo-sql.js";
+import {
+  buildLaborContext,
+  isLaborLine,
+  parseExtraLaborAccounts,
+  type LaborContext,
+  type QboAccountLite,
+  type QboEmployeeLite,
+} from "./labor.js";
+import { computeProjectHours, type TimeActivityLite } from "./project-hours.js";
 
 export interface ProjectRef {
   id: string;
@@ -157,4 +168,126 @@ export function computeProjectFinancials(
   }
   const laborTotal = round2(labor);
   return { ...base, labor: { total: laborTotal }, net: round2(revenueTotal - costTotal - laborTotal) };
+}
+
+const PROJECT_ARGS = {
+  type: "object" as const,
+  properties: {
+    project_id: { type: "string", description: "QuickBooks project (customer) id — see qbo_projects_list" },
+    start_date: { type: "string", description: "YYYY-MM-DD" },
+    end_date: { type: "string", description: "YYYY-MM-DD" },
+  },
+  required: ["project_id", "start_date", "end_date"],
+};
+
+export const projectFinancialsTools: Tool[] = [
+  {
+    name: "qbo_project_get_financials",
+    description:
+      "Project financials for one project and period: revenue lines, non-labor cost lines, and labor as a SINGLE total. Individual pay, paychecks and employee names are never returned.",
+    inputSchema: {
+      ...PROJECT_ARGS,
+      properties: {
+        ...PROJECT_ARGS.properties,
+        accounting_method: { type: "string", enum: ["Cash", "Accrual"] },
+      },
+    },
+  },
+  {
+    name: "qbo_project_get_financials_nonlabor",
+    description:
+      "Project revenue and non-labor cost lines for one project and period. Labor is excluded entirely; netExcludingLabor is NOT the project's profit.",
+    inputSchema: {
+      ...PROJECT_ARGS,
+      properties: {
+        ...PROJECT_ARGS.properties,
+        accounting_method: { type: "string", enum: ["Cash", "Accrual"] },
+      },
+    },
+  },
+  {
+    name: "qbo_project_get_hours",
+    description:
+      "Hours logged on one project per person (from time entries) for a period. Never returns pay or billing rates.",
+    inputSchema: PROJECT_ARGS,
+  },
+];
+
+/** Columns requested from ProfitAndLossDetail. `cust_name` is what lets every
+ *  row be checked against the project; if QBO drops it, computeProjectFinancials
+ *  errors rather than skip the check. */
+const PNL_DETAIL_COLUMNS = "tx_date,txn_type,doc_num,name,memo,subt_nat_amount,cust_name";
+
+/** Large enough for a project-year of detail; computeProjectFinancials errors if exceeded. */
+const MAX_DETAIL_ROWS = 50_000;
+
+function parseProjectArgs(args: Record<string, unknown>) {
+  const id = String(args.project_id ?? "");
+  if (!/^\d+$/.test(id)) throw new Error("project_id must be a numeric QuickBooks id");
+  const start = assertDate(String(args.start_date ?? ""), "start_date");
+  const end = assertDate(String(args.end_date ?? ""), "end_date");
+  return { id, period: { start, end } };
+}
+
+async function loadProject(id: string): Promise<ProjectRef> {
+  const res = (await getClient().query(
+    `SELECT * FROM Customer WHERE Id = '${escapeQboString(id)}'`
+  )) as { QueryResponse?: { Customer?: { Id?: string; DisplayName?: string; FullyQualifiedName?: string }[] } };
+  const c = res?.QueryResponse?.Customer?.[0];
+  if (!c?.Id) throw new Error(`No QuickBooks project or customer with id ${id}`);
+  return { id: c.Id, name: c.DisplayName ?? "", fullyQualifiedName: c.FullyQualifiedName ?? c.DisplayName ?? "" };
+}
+
+const text = (value: unknown) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
+});
+
+export async function handleProjectFinancialsTool(
+  name: string,
+  args: Record<string, unknown>
+): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+  const { id, period } = parseProjectArgs(args);
+  const client = getClient();
+  const project = await loadProject(id);
+
+  if (name === "qbo_project_get_hours") {
+    const acts = (await client.getPaginated(
+      `SELECT * FROM TimeActivity WHERE TxnDate >= '${period.start}' AND TxnDate <= '${period.end}'`
+    )) as TimeActivityLite[];
+    return text(computeProjectHours(acts, project, period));
+  }
+
+  if (name !== "qbo_project_get_financials" && name !== "qbo_project_get_financials_nonlabor") {
+    return { content: [{ type: "text", text: `Unknown project tool: ${name}` }], isError: true };
+  }
+
+  // Inactive rows matter: a departed executive's paychecks and a retired bonus
+  // account must still be recognised as labor.
+  const [accounts, employees] = await Promise.all([
+    client.getPaginated("SELECT * FROM Account WHERE Active IN (true, false)") as Promise<QboAccountLite[]>,
+    client.getPaginated("SELECT * FROM Employee WHERE Active IN (true, false)") as Promise<QboEmployeeLite[]>,
+  ]);
+  const ctx = buildLaborContext(accounts, employees, parseExtraLaborAccounts(process.env.QBO_EXTRA_LABOR_ACCOUNTS));
+
+  const params: Record<string, string> = {
+    start_date: period.start,
+    end_date: period.end,
+    customer: project.id,
+    columns: PNL_DETAIL_COLUMNS,
+  };
+  if (args.accounting_method === "Cash" || args.accounting_method === "Accrual") {
+    params.accounting_method = String(args.accounting_method);
+  }
+  const flat = flattenReport(await client.get("reports/ProfitAndLossDetail", params), MAX_DETAIL_ROWS);
+
+  try {
+    return text(
+      computeProjectFinancials(flat, project, period, ctx, name === "qbo_project_get_financials")
+    );
+  } catch (err) {
+    if (err instanceof ProjectFilterError) {
+      return { content: [{ type: "text", text: err.message }], isError: true };
+    }
+    throw err;
+  }
 }
