@@ -4,11 +4,14 @@ const queries: string[] = [];
 const gets: { path: string; params: Record<string, string> }[] = [];
 let report: unknown;
 let timeActivities: unknown[] = [];
+let getError: Error | null = null;
 
-vi.mock("../utils/client.js", () => ({
+vi.mock("../utils/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/client.js")>()),
   getClient: () => ({
     get: async (path: string, params: Record<string, string>) => {
       gets.push({ path, params });
+      if (getError) throw getError;
       return report;
     },
     query: async (sql: string) => {
@@ -25,17 +28,18 @@ vi.mock("../utils/client.js", () => ({
   }),
 }));
 
+const { QboApiError } = await import("../utils/client.js");
 const { projectFinancialsTools, handleProjectFinancialsTool } = await import("../domains/project-financials.js");
 
 const col = (t: string) => ({ ColTitle: t });
 const cells = (...v: string[]) => v.map((value) => ({ value }));
-function qboReport(customer = "Acme:Project X") {
+function qboReport(customer = "Acme:Project X", payAmount = "900.50") {
   return {
     Columns: { Column: ["Date", "Transaction Type", "Num", "Name", "Memo/Description", "Amount", "Customer"].map(col) },
     Rows: { Row: [
       { Header: { ColData: cells("Income") }, Rows: { Row: [{ ColData: cells("2026-03-01", "Invoice", "1", "Acme:Project X", "", "1000.00", customer) }] } },
       { Header: { ColData: cells("Payroll Expenses") }, Rows: { Row: [{ Header: { ColData: cells("Wages") }, Rows: { Row: [
-        { ColData: cells("2026-03-05", "Paycheck", "", "William Spence", "", "900.50", "Acme:Project X") },
+        { ColData: cells("2026-03-05", "Paycheck", "", "William Spence", "", payAmount, "Acme:Project X") },
         { ColData: cells("2026-03-19", "Paycheck", "", "William Spence", "", "923.57", "Acme:Project X") },
       ] } }] } },
     ] },
@@ -47,6 +51,7 @@ beforeEach(() => {
   gets.length = 0;
   report = qboReport();
   timeActivities = [];
+  getError = null;
 });
 
 const args = { project_id: "77", start_date: "2026-01-01", end_date: "2026-09-30" };
@@ -92,6 +97,30 @@ describe("qbo_project_get_financials", () => {
     await expect(handleProjectFinancialsTool("qbo_project_get_financials", { ...args, project_id: "1' OR 1=1" })).rejects.toThrow();
     await expect(handleProjectFinancialsTool("qbo_project_get_financials", { ...args, start_date: "yesterday" })).rejects.toThrow();
     expect(gets).toHaveLength(0);
+    expect(queries).toHaveLength(0);
+  });
+});
+
+describe("leak prevention", () => {
+  it("an unparseable paycheck amount is an error that does not echo the value or name", async () => {
+    report = qboReport("Acme:Project X", "$923.57");
+    const res = await handleProjectFinancialsTool("qbo_project_get_financials", args);
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).not.toContain("923.57");
+    expect(res.content[0].text).not.toContain("William");
+  });
+  it("withholds QuickBooks fault bodies", async () => {
+    getError = new QboApiError(400, "GET", "reports/ProfitAndLossDetail", "SECRET-BODY");
+    const p = handleProjectFinancialsTool("qbo_project_get_financials", args);
+    await expect(p).rejects.toThrow("HTTP 400");
+    await expect(p).rejects.not.toThrow("SECRET-BODY");
+  });
+  it("rejects an invalid accounting_method before any QuickBooks call", async () => {
+    await expect(
+      handleProjectFinancialsTool("qbo_project_get_financials", { ...args, accounting_method: "cash" })
+    ).rejects.toThrow('accounting_method must be "Cash" or "Accrual"');
+    expect(gets).toHaveLength(0);
+    expect(queries).toHaveLength(0);
   });
 });
 
@@ -113,5 +142,8 @@ describe("qbo_project_get_hours", () => {
     expect(q).toContain("TxnDate >= '2026-01-01'");
     expect(res.content[0].text).not.toContain("Taylor");
     expect(res.content[0].text).not.toContain("92.5");
+    const out = JSON.parse(res.content[0].text);
+    expect(out.people).toEqual([{ name: "William Spence", hours: 2, billableHours: 0 }]);
+    expect(out.totalHours).toBe(2);
   });
 });

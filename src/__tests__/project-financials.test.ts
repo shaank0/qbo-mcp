@@ -8,6 +8,19 @@ import {
   ProjectFilterError,
 } from "../domains/project-financials.js";
 
+interface Line {
+  name: string;
+  account: string;
+  amount: number;
+}
+interface Out {
+  labor: { total: number };
+  revenue: { total: number; lines: Line[] };
+  nonLaborCosts: { total: number; lines: Line[] };
+  net: number;
+  netExcludingLabor: number;
+}
+
 const project = { id: "77", name: "Project X", fullyQualifiedName: "Acme:Project X" };
 const period = { start: "2026-01-01", end: "2026-09-30" };
 const ctx = buildLaborContext(
@@ -76,7 +89,7 @@ function expectNoLeak(text: string) {
 }
 
 describe("computeProjectFinancials (with labor)", () => {
-  const out = computeProjectFinancials(fixture(), project, period, ctx, true) as any;
+  const out = computeProjectFinancials(fixture(), project, period, ctx, true) as Out;
   const text = JSON.stringify(out);
 
   it("never leaks an employee name, pay amount or pay memo", () => {
@@ -89,7 +102,7 @@ describe("computeProjectFinancials (with labor)", () => {
   it("revenue and non-labor costs keep line detail; net subtracts both", () => {
     expect(out.revenue.total).toBe(10000);
     expect(out.revenue.lines).toHaveLength(1);
-    expect(out.nonLaborCosts.lines.map((l: any) => l.name)).toEqual(["Staples"]);
+    expect(out.nonLaborCosts.lines.map((l: Line) => l.name)).toEqual(["Staples"]);
     expect(out.nonLaborCosts.lines[0].account).toBe("Office Supplies");
     expect(out.nonLaborCosts.total).toBe(100);
     expect(out.net).toBe(932.72);
@@ -97,7 +110,7 @@ describe("computeProjectFinancials (with labor)", () => {
 });
 
 describe("computeProjectFinancials (nonlabor)", () => {
-  const out = computeProjectFinancials(fixture(), project, period, ctx, false) as any;
+  const out = computeProjectFinancials(fixture(), project, period, ctx, false) as Out;
   it("has no labor key, and labor is excluded from every total", () => {
     expect(out).not.toHaveProperty("labor");
     expect(out).not.toHaveProperty("net");
@@ -141,16 +154,16 @@ describe("computeProjectFinancials row-level fail-closed and edge cases", () => 
 
   it("accepts a sub-customer row and counts it in nonLaborCosts", () => {
     const flat = fixture([row(OFFICE, "Bill", "Vendor", "", "50.00", "Acme:Project X:Phase 2")]);
-    const out = computeProjectFinancials(flat, project, period, ctx, true) as any;
-    expect(out.nonLaborCosts.lines.map((l: any) => l.name)).toEqual(["Staples", "Vendor"]);
+    const out = computeProjectFinancials(flat, project, period, ctx, true) as Out;
+    expect(out.nonLaborCosts.lines.map((l: Line) => l.name)).toEqual(["Staples", "Vendor"]);
     expect(out.nonLaborCosts.total).toBe(150);
     expect(out.net).toBe(882.72);
   });
 
   it("includes a negative non-labor amount and it reduces the cost total", () => {
     const flat = fixture([row(OFFICE, "Vendor Credit", "Staples", "Return", "-25.00")]);
-    const out = computeProjectFinancials(flat, project, period, ctx, true) as any;
-    expect(out.nonLaborCosts.lines.map((l: any) => l.amount)).toEqual([100, -25]);
+    const out = computeProjectFinancials(flat, project, period, ctx, true) as Out;
+    expect(out.nonLaborCosts.lines.map((l: Line) => l.amount)).toEqual([100, -25]);
     expect(out.nonLaborCosts.total).toBe(75);
   });
 
@@ -163,8 +176,8 @@ describe("computeProjectFinancials row-level fail-closed and edge cases", () => 
 
   it("skips a row whose amount is blank", () => {
     const flat = fixture([row(OFFICE, "Bill", "Blank", "", "   ")]);
-    const out = computeProjectFinancials(flat, project, period, ctx, true) as any;
-    expect(out.nonLaborCosts.lines.map((l: any) => l.name)).toEqual(["Staples"]);
+    const out = computeProjectFinancials(flat, project, period, ctx, true) as Out;
+    expect(out.nonLaborCosts.lines.map((l: Line) => l.name)).toEqual(["Staples"]);
     expect(out.nonLaborCosts.total).toBe(100);
   });
 });

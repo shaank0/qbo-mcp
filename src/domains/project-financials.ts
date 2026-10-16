@@ -14,7 +14,7 @@
  */
 
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { getClient } from "../utils/client.js";
+import { getClient, QboApiError } from "../utils/client.js";
 import { flattenReport, type FlatReport } from "./report-rows.js";
 import { assertDate, escapeQboString } from "../utils/qbo-sql.js";
 import {
@@ -91,7 +91,7 @@ function parseAmount(value: string): number | null {
   const n = Number(v.replace(/,/g, ""));
   if (!Number.isFinite(n)) {
     throw new ProjectFilterError(
-      `unrecognised amount "${v}" in report — refusing to return partial totals`
+      "unrecognised amount format in report — refusing to return partial totals"
     );
   }
   return n;
@@ -222,6 +222,9 @@ const PNL_DETAIL_COLUMNS = "tx_date,txn_type,doc_num,name,memo,subt_nat_amount,c
 const MAX_DETAIL_ROWS = 50_000;
 
 function parseProjectArgs(args: Record<string, unknown>) {
+  if (args.accounting_method !== undefined && args.accounting_method !== "Cash" && args.accounting_method !== "Accrual") {
+    throw new Error('accounting_method must be "Cash" or "Accrual"');
+  }
   const id = String(args.project_id ?? "");
   if (!/^\d+$/.test(id)) throw new Error("project_id must be a numeric QuickBooks id");
   const start = assertDate(String(args.start_date ?? ""), "start_date");
@@ -242,7 +245,7 @@ const text = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
 });
 
-export async function handleProjectFinancialsTool(
+async function runProjectTool(
   name: string,
   args: Record<string, unknown>
 ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
@@ -287,6 +290,21 @@ export async function handleProjectFinancialsTool(
   } catch (err) {
     if (err instanceof ProjectFilterError) {
       return { content: [{ type: "text", text: err.message }], isError: true };
+    }
+    throw err;
+  }
+}
+
+export async function handleProjectFinancialsTool(
+  name: string,
+  args: Record<string, unknown>
+): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+  try {
+    return await runProjectTool(name, args);
+  } catch (err) {
+    // Upstream fault bodies must not pass through a payroll-sensitive tool.
+    if (err instanceof QboApiError) {
+      throw new Error(`QuickBooks request failed (HTTP ${err.status}) — details withheld`);
     }
     throw err;
   }
