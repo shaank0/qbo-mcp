@@ -42,11 +42,16 @@ export const LABOR_ACCOUNT_SUBTYPES = new Set([
   "GuaranteedPayments",
 ]);
 
-/** Account-name signals, for pay booked to a generically-typed account. */
-// Word-bounded so "Meals & Beverages" is not "wage"; 401(k) is matched apart
-// because \b cannot follow ")".
+/**
+ * Account-name signals, for pay booked to a generically-typed account.
+ * Case-insensitive and word-bounded, so "Office Rent" does not match
+ * "officer" and "Meals & Beverages" does not match "wage". Ambiguous names
+ * err toward labor (spec rule), so this list is intentionally broad.
+ * 401(k) is matched in its own alternative because "(" and ")" are not word
+ * characters, so \b cannot be used around them directly.
+ */
 const LABOR_ACCOUNT_NAME =
-  /\b(payroll|wages?|salary|salaries|bonus|bonuses|compensation|pension|commissions?|employee benefits?)\b|401\s*\(?k\)?/i;
+  /\b(payroll|wages?|salary|salaries|bonus|bonuses|compensation|pension|commissions?|employee benefits?|incentives?|stipends?|severance|overtime|labou?r|officers?|pto|paid time off)\b|\b401\s*\(?k\)?/i;
 
 /** Transaction types that are always payroll. */
 const LABOR_TXN_TYPE = /paycheck|payroll/i;
@@ -96,7 +101,10 @@ export function isLaborLine(
   ctx: LaborContext
 ): boolean {
   if (LABOR_TXN_TYPE.test(line.txnType)) return true;
-  if (norm(line.name) && ctx.employeeNames.has(norm(line.name))) return true;
+  // QBO renders deleted/inactive entities as "Name (deleted)"; strip that so
+  // a former employee's reimbursement still matches the employee set.
+  const name = norm(line.name.replace(/\s*\(deleted\)\s*$/i, ""));
+  if (name && ctx.employeeNames.has(name)) return true;
 
   // P&L detail nests account sections ("Expenses > Payroll Expenses > Wages"),
   // so ANY segment matching a labor account — or a labor-sounding name —

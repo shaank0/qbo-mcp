@@ -44,6 +44,35 @@ describe("isLaborLine", () => {
   it("not labor: an ordinary vendor bill, or a name that merely contains a pay word", () => {
     expect(isLaborLine(line("Expenses > Office Supplies"), ctx)).toBe(false);
     expect(isLaborLine(line("Expenses > Meals & Beverages"), ctx)).toBe(false);
-    expect(isLaborLine(line("Expenses > Executive Incentive Travel"), ctx)).toBe(false);
+    expect(isLaborLine(line("Expenses > Travel"), ctx)).toBe(false);
+    expect(isLaborLine(line("Expenses > Office Rent"), ctx)).toBe(false);
+  });
+  it("executive incentive is labor by name (ambiguous compensation => labor)", () => {
+    expect(isLaborLine(line("Expenses > Executive Incentive"), ctx)).toBe(true);
+  });
+  it("broadened pay-word list: officer salaries, severance, PTO, overtime", () => {
+    expect(isLaborLine(line("Expenses > Officer Salaries"), ctx)).toBe(true);
+    expect(isLaborLine(line("Expenses > Severance"), ctx)).toBe(true);
+    expect(isLaborLine(line("Expenses > PTO Accrual"), ctx)).toBe(true);
+    expect(isLaborLine(line("Expenses > Paid Time Off"), ctx)).toBe(true);
+    expect(isLaborLine(line("Expenses > Overtime Premium"), ctx)).toBe(true);
+  });
+  it("401(k) match is labor by name", () => {
+    expect(isLaborLine(line("Expenses > 401(k) Match"), ctx)).toBe(true);
+  });
+  it("deleted employee: a '(deleted)' suffix on the Name still matches the employee set", () => {
+    expect(isLaborLine(line("Expenses > Office Supplies", "William Spence (deleted)", "Check"), ctx)).toBe(true);
+    expect(isLaborLine(line("Expenses > Office Supplies", "william spence  (Deleted) ", "Check"), ctx)).toBe(true);
+  });
+  it("employee matched by Given + Family when DisplayName differs", () => {
+    const ctx2 = buildLaborContext(
+      accounts,
+      [{ Id: "9", DisplayName: "Spence, William", GivenName: "William", FamilyName: "Spence" }],
+      new Set()
+    );
+    expect(isLaborLine(line("Expenses > Office Supplies", "William Spence", "Expense"), ctx2)).toBe(true);
+  });
+  it("a non-employee name is not labor just because it is not on the employee list", () => {
+    expect(isLaborLine(line("Expenses > Office Supplies", "Staples (deleted)", "Bill"), ctx)).toBe(false);
   });
 });
