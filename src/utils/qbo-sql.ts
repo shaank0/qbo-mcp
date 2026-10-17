@@ -69,6 +69,17 @@ export function assertPositiveInt(
   return n;
 }
 
+/**
+ * Validate a 1-based STARTPOSITION. Unlike MAXRESULTS (a page SIZE, which QBO
+ * caps at 1000), STARTPOSITION is an offset and has no QBO-side cap — capping
+ * it at 1000 made every record past the 1999th unreachable, e.g. recent
+ * attachments in a company with years of history. The bound here only rejects
+ * absurd values.
+ */
+export function assertStartPosition(value: unknown): number {
+  return assertPositiveInt(value, "startPosition", { max: 10_000_000 });
+}
+
 export interface DatedListArgs {
   startPosition?: number;
   maxResults?: number;
@@ -87,7 +98,7 @@ export function buildDatedListSql(
   args: DatedListArgs,
   extraConditions: string[] = []
 ): string {
-  const startPosition = assertPositiveInt(args.startPosition ?? 1, "startPosition");
+  const startPosition = assertStartPosition(args.startPosition ?? 1);
   const maxResults = assertPositiveInt(args.maxResults ?? 100, "maxResults");
 
   const conditions: string[] = [...extraConditions];

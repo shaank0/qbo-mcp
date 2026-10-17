@@ -6,6 +6,7 @@
 import { getClient } from "../utils/client.js";
 import {
   assertPositiveInt,
+  assertStartPosition,
   buildDatedListSql,
   buildLikeClause,
   type DatedListArgs,
@@ -57,10 +58,7 @@ export const customerConfig: EntityConfig = {
 export const customerExtras: EntityExtras = {
   handlers: {
     qbo_customers_list: async (args) => {
-      const startPosition = assertPositiveInt(
-        (args as DatedListArgs).startPosition ?? 1,
-        "startPosition"
-      );
+      const startPosition = assertStartPosition((args as DatedListArgs).startPosition ?? 1);
       const maxResults = assertPositiveInt(
         (args as DatedListArgs).maxResults ?? 100,
         "maxResults"

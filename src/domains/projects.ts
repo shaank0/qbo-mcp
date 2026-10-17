@@ -16,7 +16,7 @@
 
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { getClient } from "../utils/client.js";
-import { assertPositiveInt } from "../utils/qbo-sql.js";
+import { assertPositiveInt, assertStartPosition } from "../utils/qbo-sql.js";
 
 export const projectTools: Tool[] = [
   {
@@ -55,7 +55,7 @@ export async function handleProjectTool(
     };
   }
 
-  const startPosition = assertPositiveInt(args.startPosition ?? 1, "startPosition");
+  const startPosition = assertStartPosition(args.startPosition ?? 1);
   const maxResults = assertPositiveInt(args.maxResults ?? 100, "maxResults");
 
   // IsProject is a read-only boolean literal in QBO SQL — not a quoted string.
