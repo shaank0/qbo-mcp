@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   assertDate,
   assertPositiveInt,
+  assertStartPosition,
   buildDatedListSql,
   escapeQboLike,
   buildLikeClause,
@@ -135,5 +136,21 @@ describe("parseEnvironment", () => {
   it("throws on unrecognized non-empty values rather than silently defaulting", () => {
     expect(() => parseEnvironment("staging")).toThrow(/Invalid QBO environment/);
     expect(() => parseEnvironment("dev")).toThrow();
+  });
+});
+
+describe("assertStartPosition", () => {
+  it("allows offsets past 1000 — only page size is capped by QBO", () => {
+    expect(assertStartPosition(1001)).toBe(1001);
+    expect(assertStartPosition(25_001)).toBe(25_001);
+    expect(() => assertStartPosition(0)).toThrow();
+    expect(() => assertStartPosition(1.5)).toThrow();
+  });
+
+  it("buildDatedListSql pages past record 1000", () => {
+    expect(buildDatedListSql("Attachable", { startPosition: 1001, maxResults: 1000 })).toBe(
+      "SELECT * FROM Attachable STARTPOSITION 1001 MAXRESULTS 1000"
+    );
+    expect(() => buildDatedListSql("Attachable", { maxResults: 1001 })).toThrow();
   });
 });

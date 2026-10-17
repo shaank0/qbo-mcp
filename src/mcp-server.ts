@@ -26,6 +26,7 @@ import { registerResourceHandlers } from "./resources.js";
 // Hand-written domains for tools that don't fit the entity-config pattern
 import { expenseTools, handleExpenseTool } from "./domains/expenses.js";
 import { projectTools, handleProjectTool } from "./domains/projects.js";
+import { attachmentTools, handleAttachmentTool } from "./domains/attachments.js";
 import { projectFinancialsTools, handleProjectFinancialsTool } from "./domains/project-financials.js";
 import { reportTools, handleReportTool } from "./domains/reports.js";
 // Generated entities (Customer, Invoice, Payment) flow through this registry
@@ -79,10 +80,16 @@ const handWrittenDomains: DomainInfo[] = [
       "Project financials and hours with payroll protected - labor as a total only, hours without rates",
     tools: projectFinancialsTools,
   },
+  {
+    prefix: "qbo_attachments",
+    description:
+      "Attachments - find receipts/files by the transactions they're on, or newest first by date added",
+    tools: attachmentTools,
+  },
 ];
 
 const allDomains: DomainInfo[] = [...entityDomains, ...handWrittenDomains];
-const allTools: Tool[] = [...allEntityTools, ...expenseTools, ...reportTools, ...projectTools, ...projectFinancialsTools];
+const allTools: Tool[] = [...allEntityTools, ...expenseTools, ...reportTools, ...projectTools, ...projectFinancialsTools, ...attachmentTools];
 
 /**
  * Tools as advertised by tools/list. qbo_invoices_get carries the MCP Apps
@@ -262,6 +269,9 @@ export function createMcpServer(): Server {
       }
       if (name.startsWith("qbo_project_get_")) {
         return await handleProjectFinancialsTool(name, toolArgs);
+      }
+      if (name.startsWith("qbo_attachments_")) {
+        return await handleAttachmentTool(name, toolArgs);
       }
 
       return {

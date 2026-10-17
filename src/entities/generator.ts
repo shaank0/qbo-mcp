@@ -17,6 +17,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { getClient } from "../utils/client.js";
 import {
   assertPositiveInt,
+  assertStartPosition,
   buildDatedListSql,
   buildLikeClause,
   type DatedListArgs,
@@ -232,7 +233,7 @@ function builtinHandlers(config: EntityConfig): Map<string, Handler> {
     const { field } = config.search;
     map.set(`${prefix}_search`, async (args) => {
       const rawTerm = args.term as string;
-      const startPosition = assertPositiveInt(args.startPosition ?? 1, "startPosition");
+      const startPosition = assertStartPosition(args.startPosition ?? 1);
       const maxResults = assertPositiveInt(args.maxResults ?? 100, "maxResults");
       const sql = `SELECT * FROM ${config.name} WHERE ${buildLikeClause(field, rawTerm)} STARTPOSITION ${startPosition} MAXRESULTS ${maxResults}`;
       const result = await getClient().query(sql);
