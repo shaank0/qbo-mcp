@@ -132,6 +132,33 @@ describe.skipIf(!hasCreds)("QBO sandbox integration", () => {
     }
     expect(result.isError).not.toBe(true);
   });
+
+  // Read-only: proves QuickBooks accepts each filter the PO search emits
+  // (VendorRef, DocNumber LIKE, POStatus, TxnDate, TotalAmt) and the vendor
+  // name lookup. None of these were checked against a live realm when the
+  // tool was written. close/delete are NOT exercised here — this suite never
+  // writes (see the header).
+  it("purchase orders: qbo_purchase_orders_search accepts every filter", async () => {
+    const all = await callOk("qbo_purchase_orders_search", { maxResults: 5 });
+    expect(all.content[0]?.text ?? "").toMatch(/QueryResponse/);
+
+    const first = JSON.parse(all.content[0]?.text ?? "{}")?.QueryResponse
+      ?.PurchaseOrder?.[0] as
+      | { VendorRef?: { value?: string; name?: string }; DocNumber?: string }
+      | undefined;
+
+    for (const args of [
+      { status: "Open" },
+      { status: "Closed" },
+      { startDate: WINDOW.start_date, endDate: WINDOW.end_date },
+      { minAmount: 0, maxAmount: 1_000_000 },
+      { docNumber: first?.DocNumber ?? "1" },
+      { vendorId: first?.VendorRef?.value ?? "1" },
+      { vendorName: first?.VendorRef?.name?.slice(0, 4) ?? "a" },
+    ]) {
+      await callOk("qbo_purchase_orders_search", { ...args, maxResults: 5 });
+    }
+  });
 });
 
 /**

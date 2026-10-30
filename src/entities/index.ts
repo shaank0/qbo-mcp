@@ -23,7 +23,7 @@ import { billConfig } from "./bill.js";
 import { billPaymentConfig } from "./bill-payment.js";
 import { vendorCreditConfig } from "./vendor-credit.js";
 import { purchaseConfig } from "./purchase.js";
-import { purchaseOrderConfig } from "./purchase-order.js";
+import { purchaseOrderConfig, purchaseOrderExtras } from "./purchase-order.js";
 import { estimateConfig } from "./estimate.js";
 import { salesReceiptConfig } from "./sales-receipt.js";
 import { creditMemoConfig } from "./credit-memo.js";
@@ -69,7 +69,7 @@ const registry: RegistryEntry[] = [
   makeEntry(billPaymentConfig),
   makeEntry(vendorCreditConfig),
   makeEntry(purchaseConfig),
-  makeEntry(purchaseOrderConfig),
+  makeEntry(purchaseOrderConfig, purchaseOrderExtras),
   makeEntry(estimateConfig),
   makeEntry(salesReceiptConfig),
   makeEntry(creditMemoConfig),
