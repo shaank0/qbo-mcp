@@ -6,7 +6,10 @@ import {
   buildDatedListSql,
   escapeQboLike,
   buildLikeClause,
+  buildLikeSearchSql,
+  escapeQboSearchTerm,
   escapeQboString,
+  QBO_MAX_START_POSITION,
 } from "../utils/qbo-sql.js";
 import { parseEnvironment } from "../utils/client.js";
 
@@ -38,7 +41,8 @@ describe("escapeQboLike", () => {
   // QuickBooks' query language has no ESCAPE clause (it rejects the query
   // with QueryParserError) and its LIKE supports only the % wildcard. So a
   // user's % cannot be made literal; it is removed so a search term can never
-  // inject a wildcard. _ and backslash are ordinary characters to QBO.
+  // inject a wildcard. _ is an ordinary character to QBO; backslashes are
+  // doubled by escapeQboSearchTerm (upstream: QBO reads a backslash-quote as an escaped quote).
   it("drops % and leaves _ and backslash untouched", () => {
     expect(escapeQboLike("50%")).toBe("50");
     expect(escapeQboLike("%%a%b%")).toBe("ab");
@@ -58,6 +62,51 @@ describe("buildLikeClause", () => {
     const clause = buildLikeClause("DisplayName", "O'Brien_50%");
     expect(clause).toBe("DisplayName LIKE '%O''Brien_50%'");
     expect(clause).not.toMatch(/ESCAPE/i);
+  });
+
+  it("doubles a trailing backslash so it cannot escape the closing quote", () => {
+    expect(buildLikeClause("DisplayName", "trailing\\")).toBe(
+      "DisplayName LIKE '%trailing\\\\%'"
+    );
+  });
+});
+
+describe("escapeQboSearchTerm", () => {
+  it("doubles quotes and backslashes but leaves % and _ as QBO LIKE sees them", () => {
+    // % handling is escapeQboLike's job; this function leaves it alone.
+    expect(escapeQboSearchTerm("50%")).toBe("50%");
+    expect(escapeQboSearchTerm("foo_bar")).toBe("foo_bar");
+    expect(escapeQboSearchTerm("plain")).toBe("plain");
+    expect(escapeQboSearchTerm("O'Brien")).toBe("O''Brien");
+    expect(escapeQboSearchTerm("a\\b")).toBe("a\\\\b");
+    expect(escapeQboSearchTerm("trailing\\")).toBe("trailing\\\\");
+  });
+});
+
+describe("buildLikeSearchSql", () => {
+  it("does not emit ESCAPE, which QBO's parser rejects", () => {
+    const sql = buildLikeSearchSql("Customer", "DisplayName", "Scharpf");
+    expect(sql).toBe(
+      "SELECT * FROM Customer WHERE DisplayName LIKE '%Scharpf%' STARTPOSITION 1 MAXRESULTS 100"
+    );
+    expect(sql).not.toContain("ESCAPE");
+  });
+
+  it("quote-escapes the term and pages past 1000", () => {
+    const sql = buildLikeSearchSql("Customer", "DisplayName", "O'Brien", {
+      startPosition: 1001,
+      maxResults: 25,
+    });
+    expect(sql).toBe(
+      "SELECT * FROM Customer WHERE DisplayName LIKE '%O''Brien%' STARTPOSITION 1001 MAXRESULTS 25"
+    );
+  });
+
+  it("keeps a breakout attempt inside the LIKE literal", () => {
+    const sql = buildLikeSearchSql("Customer", "DisplayName", "x%' OR '1'='1");
+    expect(sql).toBe(
+      "SELECT * FROM Customer WHERE DisplayName LIKE '%x'' OR ''1''=''1%' STARTPOSITION 1 MAXRESULTS 100"
+    );
   });
 });
 
@@ -88,6 +137,17 @@ describe("assertPositiveInt", () => {
     expect(() => assertPositiveInt(1.5, "x")).toThrow();
     expect(() => assertPositiveInt("abc", "x")).toThrow();
   });
+
+  it("accepts a STARTPOSITION past the MAXRESULTS cap when asked", () => {
+    expect(
+      assertPositiveInt(1001, "startPosition", { max: QBO_MAX_START_POSITION })
+    ).toBe(1001);
+    expect(() =>
+      assertPositiveInt(QBO_MAX_START_POSITION + 1, "startPosition", {
+        max: QBO_MAX_START_POSITION,
+      })
+    ).toThrow(/startPosition/);
+  });
 });
 
 describe("buildDatedListSql", () => {
@@ -106,6 +166,14 @@ describe("buildDatedListSql", () => {
     expect(() => buildDatedListSql("Bill", { startDate: "nope" })).toThrow(
       /Invalid startDate/
     );
+  });
+
+  it("allows startPosition past 1000 and still caps maxResults", () => {
+    expect(buildDatedListSql("Payment", { startPosition: 1001, maxResults: 1000 })).toBe(
+      "SELECT * FROM Payment STARTPOSITION 1001 MAXRESULTS 1000"
+    );
+    expect(() => buildDatedListSql("Payment", { maxResults: 1001 })).toThrow(/maxResults/);
+    expect(() => buildDatedListSql("Payment", { startPosition: 0 })).toThrow(/startPosition/);
   });
 
   it("prepends caller-supplied conditions before the date range", () => {

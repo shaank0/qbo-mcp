@@ -17,23 +17,34 @@ export function escapeQboString(value: string): string {
 }
 
 /**
- * Make a user-supplied search term safe to embed in a LIKE pattern.
+ * Prepare a user term for `LIKE '%term%'`.
  *
  * QuickBooks' query language has NO `ESCAPE` clause — it rejects the whole
  * query with `QueryParserError: Encountered "ESCAPE"` — and its LIKE supports
- * only the `%` wildcard. A user's `%` therefore cannot be made literal, so it
- * is removed: a search term can never inject a wildcard. `_` and backslash are
- * ordinary characters to QBO and are left alone.
- * Quote escaping is the caller's responsibility (run `escapeQboString` after),
- * or use `buildLikeClause`, which does both.
+ * only the `%` wildcard. A user's `%` therefore cannot be made literal.
+ *
+ * Fork policy (gateway): `%` is REMOVED by {@link escapeQboLike}, so a search
+ * term can never inject a wildcard. `_` is an ordinary character to QBO.
+ *
+ * Upstream (WYRE-AI) additionally doubles backslashes, because QBO also treats
+ * `\'` as an escaped apostrophe — a trailing backslash would otherwise escape
+ * the closing quote of the literal. Single quotes are doubled.
  */
+export function escapeQboSearchTerm(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "''");
+}
+
+/** Drop every `%` from a search term — see {@link escapeQboSearchTerm}. */
 export function escapeQboLike(value: string): string {
   return value.replace(/%/g, "");
 }
 
-/** `<field> LIKE '%<term>%'` — a contains-match, safely escaped. */
+/**
+ * `<field> LIKE '%<term>%'` — a contains-match, safely escaped, never with an
+ * `ESCAPE` clause. Every LIKE search in this server goes through here.
+ */
 export function buildLikeClause(field: string, rawTerm: string): string {
-  return `${field} LIKE '%${escapeQboString(escapeQboLike(rawTerm))}%'`;
+  return `${field} LIKE '%${escapeQboSearchTerm(escapeQboLike(rawTerm))}%'`;
 }
 
 /**
@@ -51,15 +62,29 @@ export function assertDate(value: string, field: string): string {
 }
 
 /**
- * Validate and coerce a positive integer for pagination parameters. QBO caps
- * MAXRESULTS at 1000 and rejects zero/negative values.
+ * QBO rejects MAXRESULTS above 1000. The default upper bound of
+ * {@link assertPositiveInt} matches that cap.
+ */
+export const QBO_MAX_RESULTS = 1000;
+
+/**
+ * STARTPOSITION is a 1-based offset. QBO does not cap it at 1000 (that limit
+ * is only for MAXRESULTS). A signed 32-bit ceiling keeps a non-integer or
+ * absurd value out of the query string.
+ */
+export const QBO_MAX_START_POSITION = 2_147_483_647;
+
+/**
+ * Validate and coerce a positive integer for pagination parameters. The
+ * default upper bound is QBO's MAXRESULTS cap of 1000. Pass
+ * `max: QBO_MAX_START_POSITION` for STARTPOSITION.
  */
 export function assertPositiveInt(
   value: unknown,
   field: string,
   opts: { min?: number; max?: number } = {}
 ): number {
-  const { min = 1, max = 1000 } = opts;
+  const { min = 1, max = QBO_MAX_RESULTS } = opts;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isInteger(n) || n < min || n > max) {
     throw new Error(
@@ -77,7 +102,7 @@ export function assertPositiveInt(
  * absurd values.
  */
 export function assertStartPosition(value: unknown): number {
-  return assertPositiveInt(value, "startPosition", { max: 10_000_000 });
+  return assertPositiveInt(value, "startPosition", { max: QBO_MAX_START_POSITION });
 }
 
 export interface DatedListArgs {
@@ -115,4 +140,22 @@ export function buildDatedListSql(
   }
   sql += ` STARTPOSITION ${startPosition} MAXRESULTS ${maxResults}`;
   return sql;
+}
+
+/**
+ * `SELECT * FROM {entity} WHERE {field} LIKE '%term%' STARTPOSITION …`.
+ *
+ * `entity` and `field` must be fixed identifiers from entity config, not user
+ * input. The clause comes from {@link buildLikeClause} (`%` dropped, quotes
+ * and backslashes escaped). No `ESCAPE` clause: QBO's parser rejects it.
+ */
+export function buildLikeSearchSql(
+  entity: string,
+  field: string,
+  rawTerm: string,
+  args: Pick<DatedListArgs, "startPosition" | "maxResults"> = {}
+): string {
+  const startPosition = assertStartPosition(args.startPosition ?? 1);
+  const maxResults = assertPositiveInt(args.maxResults ?? 100, "maxResults");
+  return `SELECT * FROM ${entity} WHERE ${buildLikeClause(field, rawTerm)} STARTPOSITION ${startPosition} MAXRESULTS ${maxResults}`;
 }

@@ -52,15 +52,18 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Set environment variables
+# Set environment variables.
+# 0.0.0.0 is the interface inside the container. Startup still refuses to run
+# without a real CONDUIT_S2S_SECRET. MCP_ALLOW_INSECURE_DEV=1 forces 127.0.0.1
+# even while this host is 0.0.0.0. Gateway mode reads the access token and
+# realm id from X-Qbo-* headers only.
 ENV NODE_ENV=production
 ENV LOG_LEVEL=info
 ENV LOG_FORMAT=json
 ENV MCP_TRANSPORT=http
 ENV MCP_HTTP_PORT=8080
 ENV MCP_HTTP_HOST=0.0.0.0
-# Default to env mode for backward compatibility; set to 'gateway' for hosted deployment
-ENV AUTH_MODE=env
+ENV AUTH_MODE=gateway
 
 # Define volume for logs
 VOLUME ["/app/logs"]
@@ -82,9 +85,9 @@ LABEL org.opencontainers.image.description="Model Context Protocol server for Qu
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
-LABEL org.opencontainers.image.source="https://github.com/wyre-technology/qbo-mcp"
-LABEL org.opencontainers.image.documentation="https://github.com/wyre-technology/qbo-mcp/blob/main/README.md"
-LABEL org.opencontainers.image.url="https://github.com/wyre-technology/qbo-mcp/pkgs/container/qbo-mcp"
+LABEL org.opencontainers.image.source="https://github.com/WYRE-AI/qbo-mcp"
+LABEL org.opencontainers.image.documentation="https://github.com/WYRE-AI/qbo-mcp/blob/main/README.md"
+LABEL org.opencontainers.image.url="https://github.com/WYRE-AI/qbo-mcp/pkgs/container/qbo-mcp"
 LABEL org.opencontainers.image.vendor="Wyre Technology"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL io.modelcontextprotocol.server.name="io.github.wyre-technology/qbo-mcp"
+LABEL io.modelcontextprotocol.server.name="io.github.WYRE-AI/qbo-mcp"
