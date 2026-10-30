@@ -50,7 +50,7 @@ EXPOSE 8080
 
 # Health check against the actual HTTP endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/health || exit 1
 
 # Set environment variables.
 # 0.0.0.0 is the interface inside the container. Startup still refuses to run
