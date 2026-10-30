@@ -63,8 +63,14 @@ jobs:
       - name: Smoke-test the built image
         run: |
           set -euo pipefail
+          # Upstream refuses to start the HTTP server without CONDUIT_S2S_SECRET
+          # and 401s any /mcp request lacking a valid X-Gateway-S2S signature
+          # (t=<unix>,v1=hex HMAC-SHA256(secret, "t=<unix>")) -- the same
+          # header the MCP gateway sends. Throwaway secret, CI only.
+          s2s_secret=$(openssl rand -hex 32)
           docker run -d --name qbo -p 8080:8080 \
             -e AUTH_MODE=gateway -e MCP_TRANSPORT=http \
+            -e CONDUIT_S2S_SECRET="$s2s_secret" \
             ghcr.io/${{ github.repository_owner }}/qbo-mcp:ci
           for i in $(seq 1 30); do
             curl -sf -o /dev/null http://localhost:8080/health && break
@@ -79,7 +85,10 @@ jobs:
           # This server is also intentionally stateless (StreamableHTTPServerTransport
           # is built with sessionIdGenerator: undefined -- see src/index.ts): it
           # never issues an Mcp-Session-Id, so none is captured or replayed here.
-          creds=(-H 'X-Qbo-Access-Token: ci-smoke-test-token' -H 'X-Qbo-Realm-Id: 0000000000')
+          t=$(date +%s)
+          sig=$(printf 't=%s' "$t" | openssl dgst -sha256 -hmac "$s2s_secret" -hex | sed 's/^.*= //')
+          creds=(-H 'X-Qbo-Access-Token: ci-smoke-test-token' -H 'X-Qbo-Realm-Id: 0000000000'
+                 -H "X-Gateway-S2S: t=${t},v1=${sig}")
 
           curl -sf -X POST http://localhost:8080/mcp \
             -H 'Content-Type: application/json' \
@@ -106,7 +115,9 @@ jobs:
           # only thing that proves otherwise.
           for t in qbo_reports_transaction_list qbo_reports_profit_and_loss_detail \
                    qbo_reports_aged_receivable_detail qbo_reports_class_sales \
-                   qbo_reports_journal_report qbo_projects_list; do
+                   qbo_reports_journal_report qbo_projects_list \
+                   qbo_purchase_orders_search qbo_purchase_orders_close \
+                   qbo_purchase_orders_delete; do
             echo "$names" | grep -qw "$t" || { echo "MISSING TOOL: $t"; exit 1; }
           done
           echo "all fork tools served"
