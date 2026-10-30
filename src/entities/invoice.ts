@@ -10,10 +10,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { attachInvoiceCard } from "../card.builder.js";
 import { getClient } from "../utils/client.js";
 import { elicitText } from "../utils/elicitation.js";
-import {
-  buildDatedListSql,
-  type DatedListArgs,
-} from "../utils/qbo-sql.js";
+import { buildDatedListSql, type DatedListArgs } from "../utils/qbo-sql.js";
 import { jsonText } from "./generator.js";
 import type { EntityConfig, EntityExtras, EntityField } from "./types.js";
 
@@ -34,7 +31,11 @@ const invoiceFields: EntityField[] = [
     items: { type: "object" },
   },
   { name: "DueDate", type: "string", description: "Due date (YYYY-MM-DD)" },
-  { name: "TxnDate", type: "string", description: "Transaction date (YYYY-MM-DD)" },
+  {
+    name: "TxnDate",
+    type: "string",
+    description: "Transaction date (YYYY-MM-DD)",
+  },
   {
     name: "BillEmail",
     type: "object",
@@ -59,7 +60,7 @@ const invoiceUpdateFields: EntityField[] = invoiceFields.map((field) =>
   // may change other fields without resending them.
   field.name === "CustomerRef" || field.name === "Line"
     ? { ...field, required: false }
-    : field
+    : field,
 );
 
 export const invoiceConfig: EntityConfig = {
@@ -91,7 +92,8 @@ const invoicesListTool: Tool = {
       },
       maxResults: {
         type: "number",
-        description: "Maximum number of results to return (default: 100, max: 1000)",
+        description:
+          "Maximum number of results to return (default: 100, max: 1000)",
       },
       status: {
         type: "string",
@@ -100,11 +102,13 @@ const invoicesListTool: Tool = {
       },
       startDate: {
         type: "string",
-        description: "Filter invoices on or after this date (YYYY-MM-DD format)",
+        description:
+          "Filter invoices on or after this date (YYYY-MM-DD format)",
       },
       endDate: {
         type: "string",
-        description: "Filter invoices on or before this date (YYYY-MM-DD format)",
+        description:
+          "Filter invoices on or before this date (YYYY-MM-DD format)",
       },
     },
   },
@@ -117,7 +121,10 @@ const invoicesSendTool: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      invoiceId: { type: "string", description: "The unique invoice ID to send" },
+      invoiceId: {
+        type: "string",
+        description: "The unique invoice ID to send",
+      },
       email: {
         type: "string",
         description:
@@ -146,13 +153,25 @@ export const invoiceExtras: EntityExtras = {
         | undefined;
       const docNumber =
         typeof invoice?.DocNumber === "string" ? invoice.DocNumber : invoiceId;
-      const balance = typeof invoice?.Balance === "number" ? invoice.Balance : undefined;
+      const balance =
+        typeof invoice?.Balance === "number" ? invoice.Balance : undefined;
       const summary =
         balance !== undefined
           ? `Retrieved invoice #${docNumber} (balance: ${balance}).`
           : `Retrieved invoice #${docNumber}.`;
+      // FORK: also serialize the invoice into the text content. Most MCP
+      // clients behind the gateway hand the model only `content`, so a
+      // summary alone hides every line, customer and amount. The `_card`
+      // payload is a normalized duplicate for the UI and is left out.
+      const full = { ...merged };
+      delete full._card;
       return {
-        content: [{ type: "text", text: summary }],
+        content: [
+          {
+            type: "text",
+            text: `${summary}\n\n${JSON.stringify(full, null, 2)}`,
+          },
+        ],
         structuredContent: merged,
       };
     },
@@ -166,14 +185,14 @@ export const invoiceExtras: EntityExtras = {
         const from = await elicitText(
           "Would you like to filter invoices by date range? Enter a start date, or leave blank to list all.",
           "startDate",
-          "Start date (YYYY-MM-DD)"
+          "Start date (YYYY-MM-DD)",
         );
         if (from) {
           startDate = from;
           const to = await elicitText(
             "Enter an end date for the invoice filter.",
             "endDate",
-            "End date (YYYY-MM-DD)"
+            "End date (YYYY-MM-DD)",
           );
           if (to) endDate = to;
         }
@@ -190,17 +209,20 @@ export const invoiceExtras: EntityExtras = {
       const sql = buildDatedListSql(
         "Invoice",
         { ...rawArgs, startDate, endDate },
-        statusConditions
+        statusConditions,
       );
       return jsonText(await getClient().query(sql));
     },
 
     qbo_invoices_send: async (args) => {
-      const { invoiceId, email } = args as { invoiceId: string; email?: string };
+      const { invoiceId, email } = args as {
+        invoiceId: string;
+        email?: string;
+      };
       const params: Record<string, string> = {};
       if (email) params.sendTo = email;
       return jsonText(
-        await getClient().post(`invoice/${invoiceId}/send`, undefined, params)
+        await getClient().post(`invoice/${invoiceId}/send`, undefined, params),
       );
     },
   },
